@@ -1,0 +1,91 @@
+const fs = require("fs");
+const path = require("path");
+const cheerio = require("cheerio");
+
+const BASE_URL = "https://books.toscrape.com/";
+const CACHE_DIR = path.join(__dirname, "..", "cache");
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchPage(url) {
+  const cacheFile = path.join(
+    CACHE_DIR,
+    `page-${new URL(url).pathname.split("/").filter(Boolean).pop() || "home"}.html`
+  );
+
+  if (fs.existsSync(cacheFile)) {
+    console.log(`CACHE HIT: ${url}`);
+    return fs.readFileSync(cacheFile, "utf8");
+  }
+
+  console.log(`FETCH: ${url}`);
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent":
+        "FlyRankInternship-A9/1.0 (+https://github.com/Chidinma-Git)"
+    },
+    signal: AbortSignal.timeout(10000)
+  });
+
+  if (response.status !== 200) {
+    throw new Error(`HTTP ${response.status} for ${url}`);
+  }
+
+  const html = await response.text();
+
+  fs.writeFileSync(cacheFile, html, "utf8");
+
+  console.log(`Saved: ${cacheFile}`);
+
+  return html;
+}
+
+async function discoverBooks() {
+  let currentPageUrl = BASE_URL;
+  const cataloguePages = [];
+  const bookUrls = new Set();
+
+  for (let pageNumber = 1; pageNumber <= 3; pageNumber++) {
+    if (pageNumber > 1) {
+      await delay(500);
+    }
+
+    const html = await fetchPage(currentPageUrl);
+    const $ = cheerio.load(html);
+
+    cataloguePages.push(currentPageUrl);
+
+    // Collect book links from this catalogue page.
+    $("article.product_pod h3 a").each((_, element) => {
+      const href = $(element).attr("href");
+
+      if (href) {
+        const absoluteUrl = new URL(href, currentPageUrl).href;
+        bookUrls.add(absoluteUrl);
+      }
+    });
+
+    // Find the catalogue's own Next link.
+    const nextLink = $("li.next a").attr("href");
+
+    if (pageNumber < 3 && nextLink) {
+      currentPageUrl = new URL(nextLink, currentPageUrl).href;
+    }
+  }
+
+  console.log("\n--- Discovery Summary ---");
+  console.log(`catalogue_pages=${cataloguePages.length}`);
+  console.log(`discovered=${bookUrls.size}`);
+  console.log(`unique_urls=${bookUrls.size}`);
+
+  console.log("\nCatalogue pages visited:");
+  cataloguePages.forEach((url) => console.log(url));
+
+  return [...bookUrls];
+}
+
+discoverBooks().catch((error) => {
+  console.error("Discovery failed:", error.message);
+  process.exitCode = 1;
+});
