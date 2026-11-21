@@ -112,3 +112,77 @@ The test confirmed that:
 - `src/test-failure.js` — deliberate HTTP 404 failure test.
 - `output/run-report.json` — run summary and failure information.
 - `output/raw-books.json` — extracted raw book records.
+
+## Stage 6: Automated Testing
+
+Automated tests are implemented using Node.js's built-in test runner (`node:test`) and assertion module (`node:assert`).
+
+### Test Coverage
+
+- GBP price conversion
+- Price conversion with whitespace
+- Invalid price rejection
+- Book normalization
+- Zod schema validation
+- Relative URL conversion
+- Duplicate URL removal
+- Missing book description handling
+- Malformed HTML handling
+
+### Run the Tests
+
+Run the following command:
+
+```bash
+npm test
+```
+
+### Test Results
+
+- Total tests: 9
+- Passed: 9
+- Failed: 0
+
+## Project Structure
+
+```text
+polite-scraper/
+├── src/
+│   ├── index.js
+│   ├── discover.js
+│   ├── extract.js
+│   ├── normalize.js
+│   ├── check-descriptions.js
+│   ├── test-failure.js
+│   ├── normalize.test.js
+│   └── parser.test.js
+├── cache/
+├── output/
+│   ├── raw-books.json
+│   ├── books.json
+│   ├── errors.json
+│   └── run-report.json
+├── README.md
+├── package.json
+└── .gitignore
+```
+
+## Technologies Used
+
+- Node.js
+- JavaScript
+- Cheerio
+- Zod
+- Node.js Fetch API
+- Node.js built-in testing tools
+- Git and GitHub
+
+## Ethical Scraping Practices
+
+- Uses a descriptive User-Agent.
+- Implements request timeouts.
+- Uses polite delays between requests.
+- Caches downloaded HTML.
+- Retries selected transient failures.
+- Avoids retrying permanent HTTP failures such as 403 and 404.
+- Records failed pages and run statistics.
