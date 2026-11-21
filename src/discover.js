@@ -8,10 +8,10 @@ const CACHE_DIR = path.join(__dirname, "..", "cache");
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchPage(url) {
-  const cacheFile = path.join(
-    CACHE_DIR,
-    `page-${new URL(url).pathname.split("/").filter(Boolean).pop() || "home"}.html`
-  );
+  const filename =
+    new URL(url).pathname.split("/").filter(Boolean).pop() || "home";
+
+  const cacheFile = path.join(CACHE_DIR, `page-${filename}.html`);
 
   if (fs.existsSync(cacheFile)) {
     console.log(`CACHE HIT: ${url}`);
@@ -36,15 +36,14 @@ async function fetchPage(url) {
 
   fs.writeFileSync(cacheFile, html, "utf8");
 
-  console.log(`Saved: ${cacheFile}`);
-
   return html;
 }
 
 async function discoverBooks() {
   let currentPageUrl = BASE_URL;
+
   const cataloguePages = [];
-  const bookUrls = new Set();
+  const bookMap = new Map();
 
   for (let pageNumber = 1; pageNumber <= 3; pageNumber++) {
     if (pageNumber > 1) {
@@ -56,17 +55,18 @@ async function discoverBooks() {
 
     cataloguePages.push(currentPageUrl);
 
-    // Collect book links from this catalogue page.
     $("article.product_pod h3 a").each((_, element) => {
       const href = $(element).attr("href");
 
       if (href) {
         const absoluteUrl = new URL(href, currentPageUrl).href;
-        bookUrls.add(absoluteUrl);
+
+        if (!bookMap.has(absoluteUrl)) {
+          bookMap.set(absoluteUrl, currentPageUrl);
+        }
       }
     });
 
-    // Find the catalogue's own Next link.
     const nextLink = $("li.next a").attr("href");
 
     if (pageNumber < 3 && nextLink) {
@@ -74,18 +74,27 @@ async function discoverBooks() {
     }
   }
 
+  const books = [...bookMap.entries()].map(([url, sourcePage]) => ({
+    url,
+    sourcePage
+  }));
+
   console.log("\n--- Discovery Summary ---");
   console.log(`catalogue_pages=${cataloguePages.length}`);
-  console.log(`discovered=${bookUrls.size}`);
-  console.log(`unique_urls=${bookUrls.size}`);
+  console.log(`discovered=${books.length}`);
+  console.log(`unique_urls=${books.length}`);
 
   console.log("\nCatalogue pages visited:");
   cataloguePages.forEach((url) => console.log(url));
 
-  return [...bookUrls];
+  return books;
 }
 
-discoverBooks().catch((error) => {
-  console.error("Discovery failed:", error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  discoverBooks().catch((error) => {
+    console.error("Discovery failed:", error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { discoverBooks };

@@ -47,7 +47,6 @@ https://books.toscrape.com/robots.txt
 
 Result:
 The server returned HTTP 404 Not Found. No robots.txt file was found at the requested URL during this check.
-
 ### Scraping rule
 
 I will not reuse this code on another site without checking its rules and terms first.
