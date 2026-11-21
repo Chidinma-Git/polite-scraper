@@ -50,3 +50,19 @@ The server returned HTTP 404 Not Found. No robots.txt file was found at the requ
 ### Scraping rule
 
 I will not reuse this code on another site without checking its rules and terms first.
+
+## Stage 4: Normalization and Validation
+
+The raw scraped data is normalized and validated using Zod.
+
+- Converts scraped prices from GBP text (e.g. £51.77) into numeric values.
+- Validates book records against a Zod schema.
+- Saves valid records to `output/books.json`.
+- Saves validation errors to `output/errors.json`.
+
+### Validation Results
+
+- Raw records processed: 60
+- Valid records: 60
+- Invalid records: 0
+- Validation library: Zod
