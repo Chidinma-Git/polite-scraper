@@ -6,7 +6,17 @@ const BASE_URL = "https://books.toscrape.com/";
 const CACHE_DIR = path.join(__dirname, "..", "cache");
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Convert a catalogue link into an absolute URL.
+function resolveBookUrl(href, currentPageUrl) {
+  return new URL(href, currentPageUrl).href;
+}
 
+// Remove duplicate books using their URLs.
+function uniqueBooksByUrl(books) {
+  return [
+    ...new Map(books.map((book) => [book.url, book])).values(),
+  ];
+}
 async function fetchPage(url) {
   const filename =
     new URL(url).pathname.split("/").filter(Boolean).pop() || "home";
@@ -59,8 +69,7 @@ async function discoverBooks() {
       const href = $(element).attr("href");
 
       if (href) {
-        const absoluteUrl = new URL(href, currentPageUrl).href;
-
+             
         if (!bookMap.has(absoluteUrl)) {
           bookMap.set(absoluteUrl, currentPageUrl);
         }
@@ -97,4 +106,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { discoverBooks };
+module.exports = { discoverBooks, resolveBookUrl, uniqueBooksByUrl };

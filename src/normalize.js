@@ -40,52 +40,54 @@ const INPUT_FILE = path.join(__dirname, "../output/raw-books.json");
 const BOOKS_FILE = path.join(__dirname, "../output/books.json");
 const ERRORS_FILE = path.join(__dirname, "../output/errors.json");
 
-// Read raw scraped data
-const rawBooks = JSON.parse(fs.readFileSync(INPUT_FILE, "utf8"));
+// Run the normalization pipeline
+function main() {
+  const rawBooks = JSON.parse(fs.readFileSync(INPUT_FILE, "utf8"));
 
-const validBooks = [];
-const errors = [];
+  const validBooks = [];
+  const errors = [];
 
-// Process and validate each book individually
-rawBooks.forEach((rawBook, index) => {
-  try {
-    const normalizedBook = normalizeBook(rawBook);
+  rawBooks.forEach((rawBook, index) => {
+    try {
+      const normalizedBook = normalizeBook(rawBook);
+      const result = BookSchema.safeParse(normalizedBook);
 
-    const result = BookSchema.safeParse(normalizedBook);
-
-    if (!result.success) {
+      if (!result.success) {
+        errors.push({
+          index,
+          title: rawBook.title || "Unknown book",
+          issues: result.error.issues,
+        });
+      } else {
+        validBooks.push(result.data);
+      }
+    } catch (error) {
       errors.push({
         index,
         title: rawBook.title || "Unknown book",
-        issues: result.error.issues,
+        error: error.message,
       });
-    } else {
-      validBooks.push(result.data);
     }
-  } catch (error) {
-    errors.push({
-      index,
-      title: rawBook.title || "Unknown book",
-      error: error.message,
-    });
-  }
-});
+  });
 
-// Save validated books
-fs.writeFileSync(
-  BOOKS_FILE,
-  JSON.stringify(validBooks, null, 2)
-);
+  fs.writeFileSync(BOOKS_FILE, JSON.stringify(validBooks, null, 2));
+  fs.writeFileSync(ERRORS_FILE, JSON.stringify(errors, null, 2));
 
-// Save rejected records
-fs.writeFileSync(
-  ERRORS_FILE,
-  JSON.stringify(errors, null, 2)
-);
+  console.log("Raw books:", rawBooks.length);
+  console.log("Valid books:", validBooks.length);
+  console.log("Invalid books:", errors.length);
+  console.log("Saved:", BOOKS_FILE);
+  console.log("Saved:", ERRORS_FILE);
+}
 
-// Report results
-console.log("Raw books:", rawBooks.length);
-console.log("Valid books:", validBooks.length);
-console.log("Invalid books:", errors.length);
-console.log("Saved:", BOOKS_FILE);
-console.log("Saved:", ERRORS_FILE);
+// Only run the pipeline when this file is executed directly
+if (require.main === module) {
+  main();
+}
+
+// Export functions and schema for testing
+module.exports = {
+  normalizePrice,
+  normalizeBook,
+  BookSchema,
+};

@@ -271,4 +271,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { fetchBookPage };
+module.exports = { fetchBookPage, extractBook, getCacheFile, delay };
