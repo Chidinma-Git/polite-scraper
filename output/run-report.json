@@ -1,0 +1,10 @@
+{
+  "started_at": "2026-11-21T16:05:57.017Z",
+  "completed_at": "2026-11-21T16:06:28.188Z",
+  "catalogue_pages": 3,
+  "discovered": 60,
+  "extracted": 60,
+  "failed": 0,
+  "failures": [],
+  "status": "completed"
+}

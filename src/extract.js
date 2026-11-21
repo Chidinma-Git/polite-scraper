@@ -1,151 +1,274 @@
+
 const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
 const { discoverBooks } = require("./discover");
 
-const CACHE_DIR = path.join(__dirname, "..", "cache");
-const OUTPUT_DIR = path.join(__dirname, "..", "output");
+const CACHE_DIR = path.join(__dirname, "../cache");
+const OUTPUT_DIR = path.join(__dirname, "../output");
+const RAW_OUTPUT_FILE = path.join(OUTPUT_DIR, "raw-books.json");
+const REPORT_FILE = path.join(OUTPUT_DIR, "run-report.json");
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const USER_AGENT =
+  "FlyRankInternship-A9/1.0 (+https://github.com/Chidinma-Git)";
 
+const REQUEST_TIMEOUT = 10000;
+const MAX_ATTEMPTS = 2;
+const POLITE_DELAY = 500;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Create a separate cache file for each book.
 function getCacheFile(url) {
   const pathname = new URL(url).pathname;
   const segments = pathname.split("/").filter(Boolean);
 
-  // The book slug is the folder immediately before index.html.
   const bookSlug = segments[segments.length - 2];
 
   return path.join(CACHE_DIR, `book-${bookSlug}.html`);
 }
 
+// Fetch a book page, using cache and retry protection.
 async function fetchBookPage(url) {
   const cacheFile = getCacheFile(url);
 
-  // Use cached HTML if it already exists.
+  // Use cached HTML if available.
   if (fs.existsSync(cacheFile)) {
     console.log(`CACHE HIT: ${url}`);
     return fs.readFileSync(cacheFile, "utf8");
   }
 
-  console.log(`FETCH: ${url}`);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    console.log(`FETCH attempt ${attempt}/${MAX_ATTEMPTS}: ${url}`);
 
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "FlyRankInternship-A9/1.0 (+https://github.com/Chidinma-Git)"
-    },
-    signal: AbortSignal.timeout(10000)
-  });
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": USER_AGENT,
+        },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+      });
 
-  if (response.status !== 200) {
-    throw new Error(`HTTP ${response.status} for ${url}`);
+      // Permanent failures: do not retry.
+      if (response.status === 403 || response.status === 404) {
+        throw new Error(`HTTP ${response.status} for ${url}`);
+      }
+
+      // Retry server errors (5xx).
+      if (response.status >= 500 && response.status <= 599) {
+        throw new Error(`HTTP ${response.status} for ${url}`);
+      }
+
+      // Do not retry other HTTP client errors (4xx).
+      if (response.status >= 400 && response.status <= 499) {
+        throw new Error(`HTTP ${response.status} for ${url}`);
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} for ${url}`);
+      }
+
+      const html = await response.text();
+
+      fs.writeFileSync(cacheFile, html, "utf8");
+
+      console.log(`Saved cache: ${cacheFile}`);
+
+      return html;
+    } catch (error) {
+      const isPermanentFailure =
+        error.message.includes("HTTP 403") ||
+        error.message.includes("HTTP 404") ||
+        (error.message.startsWith("HTTP ") &&
+          error.message.includes("4"));
+
+      const isLastAttempt = attempt === MAX_ATTEMPTS;
+
+      if (isPermanentFailure || isLastAttempt) {
+        throw error;
+      }
+
+      console.warn(`Request failed: ${error.message}`);
+      console.warn("Retrying after 500ms...");
+
+      await delay(POLITE_DELAY);
+    }
   }
 
-  const html = await response.text();
-
-  fs.writeFileSync(cacheFile, html, "utf8");
-
-  console.log(`Saved: ${cacheFile}`);
-
-  return html;
+  throw new Error(`Failed to fetch ${url}`);
 }
 
+// Extract the required information from a book page.
 function extractBook(html, productUrl, sourcePage) {
   const $ = cheerio.load(html);
 
-  const title = $("div.product_main h1").text().trim();
+  const title = $("h1").text().trim();
 
-  const priceText = $("div.product_main .price_color").text().trim();
+  const priceText = $(".price_color").first().text().trim();
 
-  const availabilityText = $("div.product_main .availability")
-    .text()
-    .replace(/\s+/g, " ")
-    .trim();
+  const availabilityText = $(".availability").text().trim();
 
-  const ratingText =
-    $("div.product_main p.star-rating")
-      .attr("class")
-      ?.replace("star-rating", "")
-      .trim() || null;
+  const ratingText = $(".star-rating").attr("class") || "";
 
   let description =
-  $("#product_description").next("p").text().trim() || null;
+    $("#product_description").next("p").text().trim() || null;
 
-if (description) {
-  description = description.replace(/\s+/g, " ").trim();
+  if (description) {
+    description = description.replace(/\s+/g, " ").trim();
 
-  // Remove the trailing "...more" marker.
-  description = description.replace(/\s*\.{3,}more$/i, "").trim();
+    // Remove the trailing "...more" marker.
+    description = description.replace(/\s*\.{3,}more$/i, "").trim();
 
-  // Remove a duplicated introductory fragment if it appears.
-  const firstSentenceEnd = description.search(/[.!?]\s/);
+    // Remove a duplicated introductory fragment if present.
+    const firstSentenceEnd = description.search(/[.!?]\s/);
 
-  if (firstSentenceEnd !== -1) {
-    const firstSentence = description.slice(0, firstSentenceEnd + 1);
-    const secondOccurrence = description.indexOf(firstSentence, firstSentenceEnd + 1);
+    if (firstSentenceEnd !== -1) {
+      const firstSentence = description.slice(
+        0,
+        firstSentenceEnd + 1
+      );
 
-    if (secondOccurrence !== -1) {
-      description = description.slice(secondOccurrence).trim();
+      const secondOccurrence = description.indexOf(
+        firstSentence,
+        firstSentenceEnd + 1
+      );
+
+      if (secondOccurrence !== -1) {
+        description = description.slice(secondOccurrence).trim();
+      }
     }
   }
-}
+
   return {
-    title: title || null,
+    title,
     product_url: productUrl,
-    price_text: priceText || null,
-    availability_text: availabilityText || null,
+    price_text: priceText,
+    availability_text: availabilityText,
     rating_text: ratingText,
     description,
     source_page: sourcePage,
-    fetched_at: new Date().toISOString()
+    fetched_at: new Date().toISOString(),
   };
 }
 
+// Main scraping process.
 async function main() {
-  const booksToExtract = await discoverBooks();
-
-  const extractedBooks = [];
-
-  for (let i = 0; i < booksToExtract.length; i++) {
-    const book = booksToExtract[i];
-
-    console.log(`\nExtracting ${i + 1}/${booksToExtract.length}`);
-
-    try {
-      // Wait 500ms between book requests.
-      if (i > 0) {
-        await delay(500);
-      }
-
-      const html = await fetchBookPage(book.url);
-
-      const record = extractBook(html, book.url, book.sourcePage);
-
-      extractedBooks.push(record);
-
-      console.log(`Extracted: ${record.title}`);
-    } catch (error) {
-      console.error(`Failed to extract ${book.url}:`, error.message);
-    }
-  }
-
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const outputFile = path.join(OUTPUT_DIR, "raw-books.json");
+  const startedAt = new Date().toISOString();
 
-  fs.writeFileSync(
-    outputFile,
-    JSON.stringify(extractedBooks, null, 2),
-    "utf8"
-  );
+  const runReport = {
+    started_at: startedAt,
+    completed_at: null,
+    catalogue_pages: 3,
+    discovered: 0,
+    extracted: 0,
+    failed: 0,
+    failures: [],
+    status: "running",
+  };
 
-  console.log("\n--- Extraction Summary ---");
-  console.log(`Discovered: ${booksToExtract.length}`);
-  console.log(`Extracted: ${extractedBooks.length}`);
-  console.log(`Saved: ${outputFile}`);
+  const rawBooks = [];
+
+  try {
+    console.log("Discovering books...");
+
+    const books = await discoverBooks();
+
+    runReport.discovered = books.length;
+
+    console.log(`Discovered ${books.length} books.`);
+
+    for (let i = 0; i < books.length; i++) {
+      const book = books[i];
+
+      console.log(`\nProcessing book ${i + 1}/${books.length}`);
+      console.log(book.url);
+
+      try {
+        const html = await fetchBookPage(book.url);
+
+        const extractedBook = extractBook(
+          html,
+          book.url,
+          book.sourcePage
+        );
+
+        rawBooks.push(extractedBook);
+
+        console.log(`SUCCESS: ${extractedBook.title}`);
+      } catch (error) {
+        console.error(`FAILED: ${book.url}`);
+        console.error(error.message);
+
+        runReport.failures.push({
+          url: book.url,
+          source_page: book.sourcePage,
+          error: error.message,
+          failed_at: new Date().toISOString(),
+        });
+      }
+
+      // Wait between book requests.
+      if (i < books.length - 1) {
+        await delay(POLITE_DELAY);
+      }
+    }
+
+    // Remove duplicate books based on product URL.
+    const uniqueBooks = [
+      ...new Map(
+        rawBooks.map((book) => [book.product_url, book])
+      ).values(),
+    ];
+
+    fs.writeFileSync(
+      RAW_OUTPUT_FILE,
+      JSON.stringify(uniqueBooks, null, 2),
+      "utf8"
+    );
+
+    runReport.extracted = uniqueBooks.length;
+    runReport.failed = runReport.failures.length;
+    runReport.completed_at = new Date().toISOString();
+
+    runReport.status =
+      runReport.failed === 0 ? "completed" : "completed_with_errors";
+
+    fs.writeFileSync(
+      REPORT_FILE,
+      JSON.stringify(runReport, null, 2),
+      "utf8"
+    );
+
+    console.log("\n========== RUN SUMMARY ==========");
+    console.log(`Discovered: ${runReport.discovered}`);
+    console.log(`Extracted: ${runReport.extracted}`);
+    console.log(`Failed: ${runReport.failed}`);
+    console.log(`Status: ${runReport.status}`);
+    console.log(`Raw data: ${RAW_OUTPUT_FILE}`);
+    console.log(`Run report: ${REPORT_FILE}`);
+    console.log("================================");
+  } catch (error) {
+    runReport.status = "failed";
+    runReport.completed_at = new Date().toISOString();
+    runReport.fatal_error = error.message;
+
+    fs.writeFileSync(
+      REPORT_FILE,
+      JSON.stringify(runReport, null, 2),
+      "utf8"
+    );
+
+    console.error("Scraping process failed:", error.message);
+  }
 }
 
-main().catch((error) => {
-  console.error("Extraction failed:", error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main();
+}
+
+module.exports = { fetchBookPage };
